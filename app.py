@@ -24,6 +24,10 @@ from src.config import (DATA_PATH, MODEL_PATH, REPORT_PATH, ROOT, FEATURES, CATE
                         NUMERIC, MONTHS)
 from src.pipeline import cancellation_probabilities, risk_bucket, validate_booking
 from src.history import get_history, total_assessments, record_assessment, clear_history
+from src.reservations import (
+    add_reservation, set_prediction, update_outcome, delete_reservation,
+    reservation_summary, OUTCOMES,
+)
 from src.theme import install_theme, hero, heading, section, info_card
 
 st.set_page_config(page_title="StayWise | Booking Intelligence", page_icon="🏨",
@@ -95,6 +99,7 @@ def show_fixed_chart(fig, height=330, yaxis=None):
 def sidebar():
     icons = {
         "Overview": "⌂   Overview",
+        "Reservations": "▦   Reservations",
         "New assessment": "✦   New assessment",
         "Scenario explorer": "◈   Scenario explorer",
         "Batch analysis": "▤   Batch analysis",
@@ -230,7 +235,7 @@ def render_assessment_panel(result):
         st.caption("Risk thresholds are illustrative workflow groupings, not calibrated probabilities or policy rules.")
 
 
-def booking_form():
+def booking_form(save_mode=False):
     initialize_form()
     st.markdown('<div class="section-label">Quick demo scenarios</div>', unsafe_allow_html=True)
     b1, b2, b3 = st.columns(3, gap="medium")
@@ -248,11 +253,12 @@ def booking_form():
 
     left, right = st.columns([1.75, 1.0], gap="large", vertical_alignment="top")
     with left:
-        with st.form("booking_assessment", clear_on_submit=False):
+        form_key = "reservation_register" if save_mode else "booking_assessment"
+        with st.form(form_key, clear_on_submit=False):
             st.markdown(
                 '<div class="form-lead"><div class="form-icon">▣</div><div>'
                 '<h3>Reservation information</h3>'
-                '<p>Provide booking details to assess the cancellation risk.</p>'
+                '<p>Enter anonymous details to register a demo reservation or estimate risk.</p>'
                 '</div></div>',
                 unsafe_allow_html=True,
             )
@@ -305,7 +311,8 @@ def booking_form():
                     st.number_input("Previous cancellations", 0, 50, step=1, key="booking_previous_cancellations")
                     st.number_input("Previous completed bookings", 0, 100, step=1, key="booking_previous_bookings_not_canceled")
                     st.number_input("Required parking spaces", 0, 10, step=1, key="booking_required_car_parking_spaces")
-            submitted = st.form_submit_button("✦   Assess Cancellation Risk", type="primary",
+            action_label = "▦   Record demo reservation" if save_mode else "✦   Analyze cancellation risk"
+            submitted = st.form_submit_button(action_label, type="primary",
                                                use_container_width=True)
 
         if submitted:
@@ -315,6 +322,13 @@ def booking_form():
                 st.session_state.pop("last_assessment", None)
                 for message in errors:
                     st.error(message)
+            elif save_mode:
+                try:
+                    item = add_reservation(st.session_state["demo_reservations"], booking)
+                    st.session_state["last_registered_id"] = item["id"]
+                    st.success(f"Demo reservation {item['id']} recorded. Scroll down to Review reservations and analyze it.")
+                except ValueError as exc:
+                    st.error(str(exc))
             else:
                 try:
                     probability = float(cancellation_probabilities(load_engine(), pd.DataFrame([booking]))[0])
@@ -327,8 +341,19 @@ def booking_form():
                     st.error(f"Prediction failed: {exc}")
 
     with right:
-        render_assessment_panel(st.session_state.get("last_assessment"))
-        st.info("Decision support only. Do not deny bookings or penalize guests based solely on model scores.")
+        if save_mode:
+            with st.container(border=True):
+                st.markdown("### Reservation workflow")
+                st.markdown("**1. Record** an anonymous demo reservation with the form.")
+                st.markdown("**2. Analyze** the saved reservation using the trained ML model.")
+                st.markdown("**3. Review** the result and optionally log the guest-reported outcome later.")
+                st.info("This is not a hotel booking/payment platform. Recording a demo entry does not reserve a real room.")
+                last_id = st.session_state.get("last_registered_id")
+                if last_id:
+                    st.success(f"Last saved record: {last_id}")
+        else:
+            render_assessment_panel(st.session_state.get("last_assessment"))
+            st.info("Decision support only. The model never cancels a reservation or denies a guest.")
 
 
 def overview():
@@ -363,6 +388,9 @@ def overview():
             fig.update_yaxes(categoryorder="total ascending")
             show_fixed_chart(fig)
     section("Explore the workspace")
+    st.info("Start with **Reservations** to record a demo booking, then analyze its possible cancellation risk. Existing ML assessments can also be run directly without registering a booking.")
+    st.button("▦  Open reservation management", type="primary",
+              key="go_reservation_management", on_click=navigate, args=("Reservations",))
     col1, col2, col3 = st.columns(3)
     with col1:
         info_card("01 / PREDICT", "Booking assessment", "Enter reservation details, receive a model-generated cancellation score and suggested workflow.")
@@ -393,8 +421,101 @@ def overview():
         st.dataframe(history.head(8), use_container_width=True, hide_index=True)
 
 
+
+def reservations_page():
+    heading(
+        "Reservation management",
+        "Record a demo reservation first, then analyze cancellation risk and track an optional reported outcome.",
+        "OPERATIONS / DEMO RESERVATION WORKSPACE",
+    )
+    st.info(
+        "**Demonstration only:** entries are anonymous and stored only in this browser session. "
+        "No real room is booked, held, confirmed, canceled or paid for. "
+        "Do not enter names, phone numbers, emails, IDs or other personal information."
+    )
+    items = st.session_state["demo_reservations"]
+    a, b, c = st.columns(3)
+    a.metric("Demo reservations", len(items))
+    b.metric("Assessed records", sum(item["probability"] is not None for item in items))
+    c.metric("Awaiting arrival", sum(item["outcome"] == "Awaiting arrival" for item in items))
+    section("1 · Record a demo reservation")
+    booking_form(save_mode=True)
+    section("2 · Review and analyze recorded reservations")
+    if not items:
+        st.info("No demo reservations yet. Use the registration form above, then review the saved booking here.")
+        return
+    st.dataframe(pd.DataFrame([reservation_summary(item) for item in items]),
+                 hide_index=True, use_container_width=True)
+    st.download_button(
+        "Download demo reservation summary CSV",
+        pd.DataFrame([reservation_summary(item) for item in items]).to_csv(index=False).encode("utf-8"),
+        "staywise_demo_reservations.csv", "text/csv",
+        help="Records contain no personal identifiers and are not real bookings.",
+    )
+    selected_id = st.selectbox(
+        "Choose a recorded reservation",
+        [item["id"] for item in items],
+        index=next((i for i, item in enumerate(items)
+                    if item["id"] == st.session_state.get("last_registered_id")), 0),
+        format_func=lambda rid: rid + "  ·  " + next(
+            (item["booking"]["hotel"] + " · " + item["booking"]["arrival_date_month"]
+             for item in items if item["id"] == rid), ""),
+    )
+    selected = next(item for item in items if item["id"] == selected_id)
+    st.caption(
+        f"{selected['booking']['hotel']} · Arrival: {selected['booking']['arrival_date_month']} · "
+        f"{int(selected['booking']['stays_in_weekend_nights']) + int(selected['booking']['stays_in_week_nights'])} nights · "
+        f"{selected['booking']['adults']} adult(s)"
+    )
+    a, b = st.columns(2)
+    with a:
+        if st.button("✦  Analyze this reservation", type="primary", use_container_width=True,
+                     key="analyze_saved_reservation"):
+            try:
+                p = float(cancellation_probabilities(load_engine(), pd.DataFrame([selected["booking"]]))[0])
+                updated = set_prediction(items, selected_id, p)
+                record_assessment(updated["booking"], p, updated["risk_level"])
+                st.session_state["last_assessment"] = {
+                    "booking": updated["booking"].copy(), "prob": p,
+                    "bucket": updated["risk_level"],
+                }
+                st.success("ML assessment generated. This did not cancel or modify any real hotel reservation.")
+            except Exception as exc:
+                st.error(f"Could not analyze reservation: {exc}")
+    with b:
+        st.metric("Model-estimated cancellation risk",
+                  "Not analyzed" if selected["probability"] is None
+                  else f"{selected['probability']:.1%}")
+    if selected["probability"] is not None:
+        render_assessment_panel({"booking": selected["booking"],
+                                 "prob": selected["probability"],
+                                 "bucket": selected["risk_level"]})
+
+    st.markdown("**3 · Record a reported outcome (manual demo status)**")
+    st.caption("Only hotel staff could know the actual outcome. ML prediction never changes it. "
+               "This button updates the demo record only — it does not cancel or confirm a live hotel booking.")
+    outcome = st.selectbox("Guest booking outcome", OUTCOMES,
+                           index=OUTCOMES.index(selected["outcome"]), key=f"demo_outcome_choice_{selected_id}")
+    d1, d2 = st.columns(2)
+    with d1:
+        if st.button("Save reported outcome", key="save_demo_outcome", use_container_width=True):
+            update_outcome(items, selected_id, outcome)
+            st.success("Demo record updated. No actual booking was changed.")
+            st.rerun()
+    with d2:
+        confirm_remove = st.checkbox("Confirm removal of selected demo record")
+        if st.button("Remove demo record", disabled=not confirm_remove,
+                     use_container_width=True, key="remove_demo_record"):
+            delete_reservation(items, selected_id)
+            if st.session_state.get("last_registered_id") == selected_id:
+                st.session_state.pop("last_registered_id", None)
+            st.rerun()
+    st.caption("Session-only storage: refreshing or disconnecting may erase these demo records. "
+               "Download CSV if you need a copy. For real hotel operations, use authenticated permanent storage.")
+
+
 def assessment():
-    heading("Cancellation risk assessment", "Enter booking details to obtain a real ML prediction, without fixed outcomes.", "PREDICTION STUDIO / SINGLE BOOKING")
+    heading("Cancellation risk assessment", "Analyze an existing or hypothetical reservation. This tool predicts risk; it does not create or cancel bookings.", "PREDICTION STUDIO / SINGLE BOOKING")
     booking_form()
     section("Assessment history")
     history = get_history()
@@ -575,12 +696,14 @@ Develop a web-based system that integrates a trained **machine learning classifi
 
 ### How to demonstrate this project
 1. Open **Overview** and describe historical dataset charts.
-2. Open **New assessment**, choose a sample scenario, then click **Assess Cancellation Risk**.
-3. Discuss cancellation probability, outcome at 50% threshold, and the risk category.
-4. Open **Scenario explorer** to compare two *model estimates* (not causal effects).
-5. Show the assessment history and export capability.
-6. Open **Batch analysis**, download the template, re-upload it, predict, and export results.
-7. Open **Model report** and explain validation-based selection, independent test metrics and the confusion matrix.
+2. Open **Reservations**, record an anonymous demo reservation (no real hotel room is reserved).
+3. Choose that saved record and click **Analyze this reservation** to generate a real ML prediction.
+4. Explain the probability and risk level. The software NEVER cancels a booking.
+5. Optionally log an outcome manually as a demonstration; it must not be mistaken for a prediction.
+6. Open **New assessment** to test a sample scenario without registering a reservation.
+7. Open **Scenario explorer** to compare two model estimates, not causal effects.
+8. Open **Batch analysis** to predict multiple bookings from an uploaded CSV.
+9. Open **Model report** to explain independent test metrics and model comparison.
 
 ### The dataset
 This project uses the **Hotel Booking Demand** dataset, collected from a resort hotel and a city hotel in Portugal, covering 2015–2017. The original public source has 119,390 observations and 32 columns. The target is `is_canceled` (1 = canceled, 0 = not canceled). Some invalid records are excluded during cleaning; exact final modeling count is in the model report.
@@ -590,14 +713,16 @@ This project uses the **Hotel Booking Demand** dataset, collected from a resort 
 **Public CSV:** [TidyTuesday / Hotel bookings](https://github.com/rfordatascience/tidytuesday/tree/main/data/2020/2020-02-11)
 
 ### Important boundaries
-- This is a **decision-support prototype**, not a hotel booking or payment processor.
+- This is a **decision-support prototype**, not a hotel booking, payment, room-inventory, or cancellation processor.
+- The Reservation Management page stores anonymous **session-only demo records**, not real hotel reservations.
+- A staff-entered guest outcome is separate from the ML prediction and does not change any actual hotel booking.
 - A risk prediction is not proof that a customer will cancel.
 - Historical training data do not represent current live bookings.
 - Local assessment history contains only anonymous booking attributes, no guest names.
 - Application usage requires attribution of any AI tools used during development, as requested by the course project guidelines.
 """)
     section("Local history controls")
-    st.caption("Assessment history is saved on this computer to data/analysis_history.sqlite3. Clearing cannot be undone.")
+    st.caption("Assessment history uses data/analysis_history.sqlite3; on shared public hosting it may be ephemeral or accessible across sessions. Never submit personal information. Clearing cannot be undone.")
     confirm = st.checkbox("I understand that clearing removes all locally saved assessments")
     if st.button("Clear local history", disabled=not confirm):
         clear_history()
@@ -620,9 +745,12 @@ def main():
         st.stop()
     if "page" not in st.session_state:
         st.session_state["page"] = "Overview"
+    if "demo_reservations" not in st.session_state:
+        st.session_state["demo_reservations"] = []
     page = sidebar()
     selected = page
-    pages = {"Overview": overview, "New assessment": assessment,
+    pages = {"Overview": overview, "Reservations": reservations_page,
+             "New assessment": assessment,
              "Scenario explorer": scenario_explorer, "Batch analysis": batch_analysis,
              "Model report": model_report, "About & guide": about_guide}
     pages[selected]()
