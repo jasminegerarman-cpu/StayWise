@@ -1,0 +1,105 @@
+{
+  "project": "StayWise | Machine Learning-Based Hotel Booking Cancellation Prediction",
+  "trained_at_utc": "2026-10-30 17:39 UTC",
+  "dataset_source": "Ant\u00f3nio, de Almeida & Nunes (2019), mirrored by TidyTuesday",
+  "raw_records": 119390,
+  "modeling_records": 118564,
+  "train_records": 71138,
+  "validation_records": 23713,
+  "refit_train_records": 94851,
+  "test_records": 23713,
+  "cancel_rate": 0.3726,
+  "best_model": "Random Forest",
+  "selection_metric": "Validation F1 for class 1 = canceled; ROC-AUC tie breaker",
+  "split_method": "Stratified 60/20/20 train/validation/test, random_state=42",
+  "data_leakage_exclusions": [
+    "reservation_status",
+    "reservation_status_date",
+    "assigned_room_type",
+    "booking_changes"
+  ],
+  "features": [
+    "hotel",
+    "lead_time",
+    "arrival_date_month",
+    "stays_in_weekend_nights",
+    "stays_in_week_nights",
+    "adults",
+    "children",
+    "babies",
+    "meal",
+    "market_segment",
+    "distribution_channel",
+    "is_repeated_guest",
+    "previous_cancellations",
+    "previous_bookings_not_canceled",
+    "reserved_room_type",
+    "deposit_type",
+    "customer_type",
+    "adr",
+    "required_car_parking_spaces",
+    "total_of_special_requests"
+  ],
+  "model_comparison": {
+    "Logistic Regression": {
+      "accuracy": 0.7835,
+      "precision": 0.7028,
+      "recall": 0.7256,
+      "f1": 0.714,
+      "roc_auc": 0.8492,
+      "confusion_matrix": [
+        [
+          12167,
+          2711
+        ],
+        [
+          2424,
+          6411
+        ]
+      ],
+      "classification_report": "              precision    recall  f1-score   support\n\n           0      0.834     0.818     0.826     14878\n           1      0.703     0.726     0.714      8835\n\n    accuracy                          0.783     23713\n   macro avg      0.768     0.772     0.770     23713\nweighted avg      0.785     0.783     0.784     23713\n",
+      "class_0_count": 14878,
+      "class_1_count": 8835
+    },
+    "Random Forest": {
+      "accuracy": 0.8318,
+      "precision": 0.7908,
+      "recall": 0.746,
+      "f1": 0.7677,
+      "roc_auc": 0.9004,
+      "confusion_matrix": [
+        [
+          13134,
+          1744
+        ],
+        [
+          2244,
+          6591
+        ]
+      ],
+      "classification_report": "              precision    recall  f1-score   support\n\n           0      0.854     0.883     0.868     14878\n           1      0.791     0.746     0.768      8835\n\n    accuracy                          0.832     23713\n   macro avg      0.822     0.814     0.818     23713\nweighted avg      0.830     0.832     0.831     23713\n",
+      "class_0_count": 14878,
+      "class_1_count": 8835
+    }
+  },
+  "final_test": {
+    "accuracy": 0.8301,
+    "precision": 0.7907,
+    "recall": 0.7398,
+    "f1": 0.7644,
+    "roc_auc": 0.9029,
+    "confusion_matrix": [
+      [
+        13148,
+        1730
+      ],
+      [
+        2299,
+        6536
+      ]
+    ],
+    "classification_report": "              precision    recall  f1-score   support\n\n           0      0.851     0.884     0.867     14878\n           1      0.791     0.740     0.764      8835\n\n    accuracy                          0.830     23713\n   macro avg      0.821     0.812     0.816     23713\nweighted avg      0.829     0.830     0.829     23713\n",
+    "class_0_count": 14878,
+    "class_1_count": 8835
+  }
+}
