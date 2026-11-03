@@ -69,18 +69,40 @@ def chart_layout(fig, height=330, yaxis=None):
 
 
 def sidebar():
+    icons = {
+        "Overview": "⌂   Overview",
+        "New assessment": "✦   New assessment",
+        "Scenario explorer": "◈   Scenario explorer",
+        "Batch analysis": "▤   Batch analysis",
+        "Model report": "▥   Model report",
+        "About & guide": "ⓘ   Help / Guide",
+    }
     with st.sidebar:
-        st.markdown('''<div class="sidebar-brand"><div class="sidebar-mark">S</div><div class="sidebar-title">StayWise<span style="color:#D9B277!important">.</span></div></div><div class="sidebar-caption">HOTEL OPERATIONS INTELLIGENCE</div>''', unsafe_allow_html=True)
-        st.caption("WORKSPACE")
-        page = st.radio("Navigate", ["Overview", "New assessment", "Scenario explorer", "Batch analysis", "Model report", "About & guide"],
-                        label_visibility="collapsed", key="page")
+        st.markdown(
+            '<div class="sidebar-brand"><div class="sidebar-mark">S</div>'
+            '<div class="sidebar-title">StayWise<span style="color:#F4C783!important">.</span></div></div>'
+            '<div class="sidebar-caption">HOTEL OPERATIONS INTELLIGENCE</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('<div class="nav-kicker">WORKSPACE</div>', unsafe_allow_html=True)
+        page = st.radio(
+            "Navigate",
+            list(icons),
+            format_func=lambda value: icons[value],
+            label_visibility="collapsed",
+            key="page",
+        )
         st.divider()
-        st.caption("SYSTEM STATUS")
-        st.success("● Prediction engine active")
-        st.caption(f"Model: {load_report()['best_model']}")
-        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-        st.caption("ACADEMIC PROTOTYPE · VERSION 1.0")
-        st.caption("Data is historical (2015–2017). Not a hotel reservation management system.")
+        st.markdown('<div class="nav-kicker">SYSTEM STATUS</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="nav-status"><span class="nav-dot"></span>'
+            'Prediction engine online</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"Active model: {load_report()['best_model']}")
+        st.markdown("<div style='height:30px'></div>", unsafe_allow_html=True)
+        st.caption("ACADEMIC PROTOTYPE · VERSION 2.0")
+        st.caption("Historical 2015–2017 hotel data. Risk estimates are not booking decisions.")
         return page
 
 
@@ -126,78 +148,163 @@ def field_value(name):
     return st.session_state[f"booking_{name}"]
 
 
+def render_assessment_panel(result):
+    """Right-side risk card. Never render a fake score before actual prediction."""
+    from html import escape
+
+    intro = (
+        '<div class="summary-lead"><div class="summary-icon">▥</div><div>'
+        '<h3>Assessment result</h3><p>Cancellation probability for this booking</p>'
+        '</div></div>'
+    )
+    if result is None:
+        body = (
+            '<div class="ready-placeholder"><div class="ready-icon">✦</div>'
+            '<h4>Ready when you are</h4>'
+            '<p>Complete the booking details and click Assess Cancellation Risk '
+            'to generate a real prediction.</p></div>'
+        )
+    else:
+        p = max(0.0, min(1.0, float(result["prob"])))
+        bucket = result["bucket"]
+        style = {"Low": ("risk-low", "low"), "Moderate": ("", ""),
+                 "High": ("risk-high", "high")}[bucket]
+        explanation = {
+            "Low": "This booking has a relatively low model-estimated cancellation score. Follow normal confirmation procedures.",
+            "Moderate": "This booking has a moderate model-estimated cancellation score. Standard reminders and routine follow-up may help.",
+            "High": "This booking has a relatively high model-estimated cancellation score. Review through fair, standard hotel procedures; never reject guests based on the model alone.",
+        }[bucket]
+        expected = "Canceled" if p >= .50 else "Not canceled"
+        body = (
+            f'<div class="risk-summary {style[0]}">'
+            '<div class="risk-eyebrow">◬ &nbsp; Estimated cancellation risk</div>'
+            f'<div><span class="risk-big">{p * 100:.1f}%</span>'
+            f'<span class="risk-pill {style[1]}">{escape(bucket)} risk</span></div>'
+            f'<div class="risk-meter"><div style="width:{p * 100:.1f}%"></div></div>'
+            '<div class="risk-scale"><span>0%</span><span>100%</span></div>'
+            '</div>'
+            f'<div class="interpretation"><strong>ⓘ &nbsp; Interpretation</strong>'
+            f'{escape(explanation)}</div>'
+            f'<div class="outcome-label">Class prediction at a 50% threshold: '
+            f'<strong>{expected}</strong>. The percentage is a model score, '
+            'not a guaranteed or calibrated real-world cancellation rate.</div>'
+        )
+    key = (
+        '<div class="risk-key"><strong>Risk guide</strong>'
+        '<div class="risk-row"><span class="risk-name"><span class="risk-swatch green"></span>Low risk</span><span>&lt; 30%</span></div>'
+        '<div class="risk-row"><span class="risk-name"><span class="risk-swatch amber"></span>Moderate risk</span><span>30% – &lt;70%</span></div>'
+        '<div class="risk-row"><span class="risk-name"><span class="risk-swatch red"></span>High risk</span><span>≥ 70%</span></div>'
+        '</div>'
+    )
+    st.markdown('<div class="assessment-panel">' + intro + body + key + '</div>', unsafe_allow_html=True)
+    if result is not None:
+        with st.expander("View features used for this prediction"):
+            st.dataframe(
+                pd.DataFrame([result["booking"]]).T.rename(columns={0: "Submitted value"}),
+                use_container_width=True,
+            )
+        st.caption("Risk thresholds are illustrative workflow groupings, not calibrated probabilities or policy rules.")
+
+
 def booking_form():
     initialize_form()
-    st.markdown("**Quick demo scenarios**")
-    b1, b2, b3 = st.columns(3)
-    for column, name in zip([b1, b2, b3], PRESETS):
-        column.button(name, on_click=apply_preset, args=(name,), use_container_width=True)
-    st.caption("Scenario buttons prefill example inputs. All predictions are computed by the trained model, not hardcoded.")
-    with st.form("booking_assessment", clear_on_submit=False):
-        st.markdown("#### Reservation information")
-        c1, c2, c3 = st.columns(3, gap="large")
-        with c1:
-            st.selectbox("Hotel property", ["City Hotel", "Resort Hotel"], key="booking_hotel")
-            st.selectbox("Arrival month", MONTHS, key="booking_arrival_date_month")
-            st.number_input("Lead time · days before arrival", 0, 1000, step=1, key="booking_lead_time")
-            st.number_input("Weekend nights", 0, 60, step=1, key="booking_stays_in_weekend_nights")
-            st.number_input("Week nights", 0, 60, step=1, key="booking_stays_in_week_nights")
-            st.number_input("Average daily rate · original dataset units", min_value=0.0, max_value=10000.0, step=5.0, key="booking_adr")
-            st.selectbox("Meal plan", ["BB", "HB", "FB", "SC", "Undefined"], key="booking_meal")
-        with c2:
-            st.number_input("Adults", 0, 20, step=1, key="booking_adults")
-            st.number_input("Children", 0, 20, step=1, key="booking_children")
-            st.number_input("Babies", 0, 20, step=1, key="booking_babies")
-            st.selectbox("Market segment", ["Online TA", "Offline TA/TO", "Direct", "Corporate", "Groups", "Complementary", "Aviation", "Undefined"], key="booking_market_segment")
-            st.selectbox("Distribution channel", ["TA/TO", "Direct", "Corporate", "GDS", "Undefined"], key="booking_distribution_channel")
-            st.selectbox("Room type", list("ABCDEFGHLP"), key="booking_reserved_room_type")
-            st.selectbox("Deposit policy", ["No Deposit", "Non Refund", "Refundable"], key="booking_deposit_type")
-        with c3:
-            st.selectbox("Customer type", ["Transient", "Transient-Party", "Contract", "Group"], key="booking_customer_type")
-            st.selectbox("Returning guest", [0, 1], format_func=lambda x: "Yes" if x else "No", key="booking_is_repeated_guest")
-            st.number_input("Previous cancellations", 0, 50, step=1, key="booking_previous_cancellations")
-            st.number_input("Previous completed bookings", 0, 100, step=1, key="booking_previous_bookings_not_canceled")
-            st.number_input("Parking spaces requested", 0, 10, step=1, key="booking_required_car_parking_spaces")
-            st.number_input("Special requests", 0, 10, step=1, key="booking_total_of_special_requests")
-            st.info("Estimates are for educational decision support, not guarantees. Do not penalize guests solely based on predictions.")
-        submitted = st.form_submit_button("Analyze cancellation risk", type="primary", use_container_width=True)
-    if submitted:
-        booking = {col: field_value(col) for col in FEATURES}
-        errors = validate_booking(booking)
-        if errors:
-            for msg in errors:
-                st.error(msg)
-        else:
-            try:
-                probability = float(cancellation_probabilities(load_engine(), pd.DataFrame([booking]))[0])
-                bucket = risk_bucket(probability)
-                record_assessment(booking, probability, bucket)
-                st.session_state["last_assessment"] = {"booking": booking, "prob": probability, "bucket": bucket}
-            except Exception as exc:
-                st.error(f"Prediction failed: {exc}")
+    st.markdown('<div class="section-label">Quick demo scenarios</div>', unsafe_allow_html=True)
+    b1, b2, b3 = st.columns(3, gap="medium")
+    b1.button("▣   Typical booking  ›", key="scenario_typical", on_click=apply_preset,
+              args=("Typical booking",), use_container_width=True)
+    b2.button("▤   Short-lead stay  ›", key="scenario_short", on_click=apply_preset,
+              args=("Short-lead stay",), use_container_width=True)
+    b3.button("▣   Long-lead booking  ›", key="scenario_long", on_click=apply_preset,
+              args=("Long-lead booking",), use_container_width=True)
+    st.markdown(
+        '<div class="scenario-note">The scenarios prefill sample inputs only. '
+        'All risk scores are calculated by the trained model.</div>',
+        unsafe_allow_html=True,
+    )
 
-    result = st.session_state.get("last_assessment")
-    if result:
-        p = result["prob"]
-        bucket = result["bucket"]
-        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-        section("Assessment result")
-        l, r = st.columns([1, 1.25], gap="large")
-        with l:
-            st.markdown(f'''<div class="result-card"><div class="result-title">Estimated cancellation probability</div><div class="huge">{p:.1%}</div><span class="pill pill-{bucket.lower()}">{bucket.upper()} RISK</span><div class="footnote">Estimated from the model's class-1 probability. This is a model score, not a guaranteed real-world cancellation rate.</div></div>''', unsafe_allow_html=True)
-        with r:
-            st.metric("Likely outcome at 50% threshold", "Cancellation" if p >= .50 else "Booking honored")
-            st.progress(min(1., max(0., p)), text="Relative cancellation likelihood")
-            st.markdown("**Suggested operational response**")
-            if bucket == "High":
-                st.warning("Review the booking and use normal, fair confirmation procedures. This score is not a reason to cancel or reject a guest.")
-            elif bucket == "Moderate":
-                st.info("Keep the reservation visible for routine follow-up and use standard booking reminders.")
+    left, right = st.columns([1.75, 1.0], gap="large", vertical_alignment="top")
+    with left:
+        with st.form("booking_assessment", clear_on_submit=False):
+            st.markdown(
+                '<div class="form-lead"><div class="form-icon">▣</div><div>'
+                '<h3>Reservation information</h3>'
+                '<p>Provide booking details to assess the cancellation risk.</p>'
+                '</div></div>',
+                unsafe_allow_html=True,
+            )
+            c1, c2, c3 = st.columns(3, gap="medium")
+            with c1:
+                st.selectbox("Hotel type *", ["City Hotel", "Resort Hotel"], key="booking_hotel")
+            with c2:
+                st.number_input("Lead time (days) *", 0, 1000, step=1, key="booking_lead_time")
+            with c3:
+                st.selectbox("Booking month *", MONTHS, key="booking_arrival_date_month")
+
+            n1, n2, n3 = st.columns(3, gap="medium")
+            with n1:
+                st.number_input("Weekend nights *", 0, 60, step=1, key="booking_stays_in_weekend_nights")
+            with n2:
+                st.number_input("Week nights *", 0, 60, step=1, key="booking_stays_in_week_nights")
+            with n3:
+                st.number_input("Adults *", 0, 20, step=1, key="booking_adults")
+
+            g1, g2, g3 = st.columns(3, gap="medium")
+            with g1:
+                st.number_input("Children", 0, 20, step=1, key="booking_children")
+            with g2:
+                st.number_input("Babies", 0, 20, step=1, key="booking_babies")
+            with g3:
+                st.number_input("ADR (dataset units) *", min_value=0.0, max_value=10000.0,
+                                step=5.0, key="booking_adr",
+                                help="Average daily room rate in the source dataset's units; not a currency-conversion feature.")
+
+            d1, d2, d3 = st.columns(3, gap="medium")
+            with d1:
+                st.selectbox("Market segment *", ["Online TA", "Offline TA/TO", "Direct", "Corporate", "Groups", "Complementary", "Aviation", "Undefined"], key="booking_market_segment")
+            with d2:
+                st.selectbox("Deposit type *", ["No Deposit", "Non Refund", "Refundable"], key="booking_deposit_type")
+            with d3:
+                st.number_input("Special requests (count)", 0, 10, step=1,
+                                key="booking_total_of_special_requests",
+                                help="The trained model uses the number of special requests, not their text.")
+
+            with st.expander("More booking details · 8 additional model features", expanded=False):
+                st.caption("These fields are included in the real ML model. Review them for a more precise example input.")
+                a, b = st.columns(2)
+                with a:
+                    st.selectbox("Meal plan", ["BB", "HB", "FB", "SC", "Undefined"], key="booking_meal")
+                    st.selectbox("Distribution channel", ["TA/TO", "Direct", "Corporate", "GDS", "Undefined"], key="booking_distribution_channel")
+                    st.selectbox("Reserved room type", list("ABCDEFGHLP"), key="booking_reserved_room_type")
+                    st.selectbox("Customer type", ["Transient", "Transient-Party", "Contract", "Group"], key="booking_customer_type")
+                with b:
+                    st.selectbox("Returning guest", [0, 1], format_func=lambda x: "Yes" if x else "No", key="booking_is_repeated_guest")
+                    st.number_input("Previous cancellations", 0, 50, step=1, key="booking_previous_cancellations")
+                    st.number_input("Previous completed bookings", 0, 100, step=1, key="booking_previous_bookings_not_canceled")
+                    st.number_input("Required parking spaces", 0, 10, step=1, key="booking_required_car_parking_spaces")
+            submitted = st.form_submit_button("✦   Assess Cancellation Risk", type="primary",
+                                               use_container_width=True)
+
+        if submitted:
+            booking = {col: field_value(col) for col in FEATURES}
+            errors = validate_booking(booking)
+            if errors:
+                st.session_state.pop("last_assessment", None)
+                for message in errors:
+                    st.error(message)
             else:
-                st.success("Proceed with standard booking processes. Continue normal confirmation and monitoring.")
-        with st.expander("Show information used for this prediction"):
-            st.dataframe(pd.DataFrame([result["booking"]]).T.rename(columns={0:"Submitted value"}), use_container_width=True)
-        st.caption("Note: the probability is not independently calibrated. Validation metrics are shown in Model report.")
+                try:
+                    probability = float(cancellation_probabilities(load_engine(), pd.DataFrame([booking]))[0])
+                    bucket = risk_bucket(probability)
+                    record_assessment(booking, probability, bucket)
+                    st.session_state["last_assessment"] = {
+                        "booking": booking, "prob": probability, "bucket": bucket,
+                    }
+                except Exception as exc:
+                    st.error(f"Prediction failed: {exc}")
+
+    with right:
+        render_assessment_panel(st.session_state.get("last_assessment"))
+        st.info("Decision support only. Do not deny bookings or penalize guests based solely on model scores.")
 
 
 def overview():
@@ -444,7 +551,7 @@ Develop a web-based system that integrates a trained **machine learning classifi
 
 ### How to demonstrate this project
 1. Open **Overview** and describe historical dataset charts.
-2. Open **New assessment**, choose a sample scenario, then click **Analyze cancellation risk**.
+2. Open **New assessment**, choose a sample scenario, then click **Assess Cancellation Risk**.
 3. Discuss cancellation probability, outcome at 50% threshold, and the risk category.
 4. Open **Scenario explorer** to compare two *model estimates* (not causal effects).
 5. Show the assessment history and export capability.
