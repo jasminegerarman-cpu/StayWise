@@ -68,6 +68,30 @@ def chart_layout(fig, height=330, yaxis=None):
     return fig
 
 
+def show_fixed_chart(fig, height=330, yaxis=None):
+    """Display a non-editable chart: no zoom, drag, pan, legend hiding, or toolbar.
+
+    Streamlit reruns when inputs/Scenario Explorer sliders change, but users cannot
+    manipulate the visual axis, hide data, or accidentally leave a graph zoomed.
+    """
+    fig = chart_layout(fig, height=height, yaxis=yaxis)
+    fig.update_layout(dragmode=False, hovermode=False)
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    fig.update_layout(legend=dict(itemclick=False, itemdoubleclick=False))
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={
+            "staticPlot": True,       # Completely disables Plotly plot interactions
+            "displayModeBar": False,  # Remove gray zoom/pan/edit toolbar
+            "scrollZoom": False,
+            "editable": False,
+            "responsive": True,
+        },
+    )
+
+
 def sidebar():
     icons = {
         "Overview": "⌂   Overview",
@@ -329,7 +353,7 @@ def overview():
             fig = go.Figure(go.Bar(x=monthly["arrival_date_month"].str[:3], y=monthly["mean"] * 100,
                                    marker_color=TEAL, marker_line_width=0,
                                    hovertemplate="%{x}: %{y:.1f}%<extra></extra>"))
-            st.plotly_chart(chart_layout(fig, yaxis=dict(ticksuffix="%")), use_container_width=True)
+            show_fixed_chart(fig, yaxis=dict(ticksuffix="%", range=[0, 100]))
     with right:
         with st.container(border=True):
             st.markdown("**Booking volume by property type**")
@@ -337,7 +361,7 @@ def overview():
             fig = go.Figure(go.Bar(y=h["hotel"], x=h["count"], orientation="h",
                                    marker_color=[GOLD, TEAL], hovertemplate="%{y}: %{x:,}<extra></extra>"))
             fig.update_yaxes(categoryorder="total ascending")
-            st.plotly_chart(chart_layout(fig), use_container_width=True)
+            show_fixed_chart(fig)
     section("Explore the workspace")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -408,9 +432,9 @@ def scenario_explorer():
         fig = go.Figure()
         fig.add_trace(go.Bar(x=["Reference", "Adjusted"], y=[baseline * 100, new_risk * 100],
                              marker_color=[NAVY, TEAL], text=[f"{baseline:.1%}", f"{new_risk:.1%}"],
-                             textposition="outside", cliponaxis=False))
-        fig.update_yaxes(range=[0, 110])
-        st.plotly_chart(chart_layout(fig, height=290, yaxis=dict(ticksuffix="%")), use_container_width=True)
+                             textposition="inside", insidetextanchor="end", textfont=dict(color="white", size=14), cliponaxis=True))
+        fig.update_yaxes(range=[0, 100])
+        show_fixed_chart(fig, height=290, yaxis=dict(ticksuffix="%", range=[0, 100]))
     with st.expander("Compare exact scenario inputs"):
         comparison = pd.DataFrame({"Feature": FEATURES, "Reference": [reference[k] for k in FEATURES],
                                    "Adjusted": [adjusted[k] for k in FEATURES]})
@@ -498,7 +522,7 @@ def model_report():
                              marker_color=color, hovertemplate="%{x}: %{y:.2f}%<extra></extra>"))
     fig.update_layout(barmode="group", showlegend=True, legend_orientation="h",
                       legend=dict(y=1.13, x=0))
-    st.plotly_chart(chart_layout(fig, height=295, yaxis=dict(ticksuffix="%", range=[0, 100])), use_container_width=True)
+    show_fixed_chart(fig, height=295, yaxis=dict(ticksuffix="%", range=[0, 100]))
     st.caption("Validation results were used to choose the model. The selected model was then refitted on training + validation records before the final untouched test evaluation.")
     section("Final independent test · selected model")
     test = rep["final_test"]
@@ -515,7 +539,7 @@ def model_report():
                                     y=["Actually honored", "Actually canceled"],
                                     colorscale=[[0, "#EAF3F3"], [1, "#137D75"]],
                                     text=cm, texttemplate="%{text:,}", showscale=False))
-        st.plotly_chart(chart_layout(heat, height=315), use_container_width=True)
+        show_fixed_chart(heat, height=315)
     with right:
         info_card("CLASS LABEL", "1 = Canceled", "Positive class. Predicted cancellation risk uses the probability of label 1.")
         info_card("CLASS LABEL", "0 = Not canceled", "Negative class. The prediction is an estimate, not a confirmed outcome.")
@@ -533,7 +557,7 @@ def model_report():
     top = pd.DataFrame({"feature": names, "score": importance}).sort_values("score", ascending=False).head(12).iloc[::-1]
     fig = go.Figure(go.Bar(x=top["score"], y=top["feature"].str.replace("num__", "", regex=False).str.replace("cat__", "", regex=False),
                            orientation="h", marker_color=TEAL))
-    st.plotly_chart(chart_layout(fig, height=390), use_container_width=True)
+    show_fixed_chart(fig, height=390)
     st.caption(label + ". This summary is global, not an explanation of any one prediction. Feature importance is not causation.")
     with st.expander("Final test classification report and leakage controls"):
         st.code(test["classification_report"])
